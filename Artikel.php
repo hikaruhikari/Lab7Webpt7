@@ -46,27 +46,29 @@ class Artikel extends BaseController
         return view('artikel/admin_index', $data);
     }
     // ... (methods add, edit, delete remain largely the same, but update to handle id_kategori)
-    public function add()
-    {
-    // Validation...
-        if ($this->request->getMethod() == 'post' && $this->validate([
-            'judul' => 'required',
-            'id_kategori' => 'required|integer' // Ensure id_kategori is required and an integer
-        ])) {
-            $model = new ArtikelModel();
-            $model->insert([
-                'judul' => $this->request->getPost('judul'),
-                'isi' => $this->request->getPost('isi'),
-                'slug' => url_title($this->request->getPost('judul')),
-                'id_kategori' => $this->request->getPost('id_kategori')
-            ]);
-            return redirect()->to('/admin/artikel');
-        } else {
-            $kategoriModel = new KategoriModel();
-            $data['kategori'] = $kategoriModel->findAll(); // Fetch categories for the form
-            $data['title'] = "Tambah Artikel";
-            return view('artikel/form_add', $data);
-        }
+    public function add()  
+    { 
+        // validasi data. 
+        $validation =  \Config\Services::validation(); 
+        $validation->setRules(['judul' => 'required']); 
+        $isDataValid = $validation->withRequest($this->request)->run(); 
+ 
+        if ($isDataValid) 
+        { 
+            $file = $this->request->getFile('gambar'); 
+            $file->move(ROOTPATH . 'public/gambar'); 
+ 
+            $artikel = new ArtikelModel(); 
+            $artikel->insert([ 
+                'judul'  => $this->request->getPost('judul'), 
+                'isi'    => $this->request->getPost('isi'), 
+                'slug'   => url_title($this->request->getPost('judul')), 
+                'gambar' => $file->getName(), 
+            ]); 
+            return redirect('admin/artikel'); 
+        } 
+        $title = "Tambah Artikel"; 
+        return view('artikel/form_add', compact('title')); 
     }
     public function edit($id)
     {
@@ -95,12 +97,44 @@ class Artikel extends BaseController
     }
     public function view($slug)
     {
-    $model = new ArtikelModel();
-    $data['artikel'] = $model->where('slug', $slug)->first();
-    if (empty($data['artikel'])) {
-        throw new \CodeIgniter\Exceptions\PageNotFoundException('Cannot find the article.');
+        $model = new ArtikelModel();
+        // Melakukan join ke tabel kategori untuk mendapatkan nama_kategori
+        $artikel = $model->select('artikel.*, kategori.nama_kategori')
+                        ->join('kategori', 'kategori.id_kategori = artikel.id_kategori', 'left')
+                        ->where('artikel.slug', $slug)
+                        ->first();
+
+        if (!$artikel) {
+            throw \CodeIgniter\Exceptions\PageNotFoundException::forPageNotFound();
         }
-    $data['title'] = $data['artikel']['judul'];
-    return view('artikel/detail', $data);
+
+        $title = $artikel['judul'];
+        return view('artikel/detail', compact('artikel', 'title'));
     }
+    public function kategori($id_kategori)
+    {
+        $model = new ArtikelModel();
+        $db = \Config\Database::connect();
+
+        // Ambil nama kategori untuk judul halaman
+        $kategori = $db->table('kategori')->where('id_kategori', $id_kategori)->get()->getRowArray();
+        
+        if (!$kategori) {
+            throw \CodeIgniter\Exceptions\PageNotFoundException::forPageNotFound("Kategori tidak ditemukan");
+        }
+
+        // Ambil artikel yang sesuai dengan id_kategori saja
+        $artikel = $model->select('artikel.*, kategori.nama_kategori')
+                        ->join('kategori', 'kategori.id_kategori = artikel.id_kategori', 'left')
+                        ->where('artikel.id_kategori', $id_kategori)
+                        ->findAll();
+
+        $data = [
+            'title' => 'Kategori: ' . $kategori['nama_kategori'],
+            'artikel' => $artikel
+        ];
+
+        // Kita gunakan view index artikel yang sudah ada untuk menampilkan hasilnya
+        return view('artikel/index', $data);
+}
 }
